@@ -1,0 +1,2 @@
+[permissions]
+allow = ["Bash=Get-ChildItem -Recurse \"C:\\Users\\Administrator\\Desktop\\我的作品\\skills-Reasonix\" | Select-Object FullName, Length, Mode", "Edit"]
