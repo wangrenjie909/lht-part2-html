@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎆 烟花签名</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a2e;
+    overflow: hidden;
+    font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+  }
+  #ui {
+    position: relative;
+    z-index: 10;
+    text-align: center;
+    transition: opacity 0.8s;
+  }
+  #ui.hidden { opacity: 0; pointer-events: none; }
+  h1 {
+    color: #ffe08a;
+    font-size: 28px;
+    margin-bottom: 16px;
+    text-shadow: 0 0 20px rgba(255,224,138,0.5);
+  }
+  #name-input {
+    padding: 12px 24px;
+    font-size: 22px;
+    border: 2px solid #ffe08a;
+    border-radius: 16px;
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+    text-align: center;
+    outline: none;
+    width: 260px;
+    letter-spacing: 4px;
+  }
+  #name-input::placeholder { color: rgba(255,255,255,0.4); }
+  #name-input:focus { border-color: #fff; box-shadow: 0 0 20px rgba(255,224,138,0.4); }
+  #fire-btn {
+    margin-top: 16px;
+    padding: 12px 36px;
+    font-size: 20px;
+    border: none;
+    border-radius: 30px;
+    background: linear-gradient(135deg, #ff6b6b, #ffd93d, #6bcb77, #4d96ff);
+    color: #fff;
+    cursor: pointer;
+    font-weight: bold;
+    letter-spacing: 2px;
+    transition: transform 0.2s, box-shadow 0.2s;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  #fire-btn:hover { transform: scale(1.08); box-shadow: 0 0 30px rgba(255,224,138,0.5); }
+  #restart-btn {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    padding: 10px 28px;
+    font-size: 16px;
+    border: 2px solid rgba(255,224,138,0.5);
+    border-radius: 20px;
+    background: rgba(20,20,60,0.8);
+    color: #ffe08a;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.5s;
+  }
+  #restart-btn.show { opacity: 1; }
+  #restart-btn:hover { background: rgba(255,224,138,0.15); }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="ui">
+  <h1>🎆 烟花签名</h1>
+  <input type="text" id="name-input" placeholder="输入你的名字" maxlength="8">
+  <br>
+  <button id="fire-btn">放烟花！</button>
+</div>
+
+<button id="restart-btn">🔄 再来一次</button>
+
+<script>
+/* ======================================================
+   烟花签名 — 粒子从底部升起 → 散开 → 聚拢拼字 → 变星星
+   ====================================================== */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---------- 星空背景 ----------
+const stars = [];
+for (let i = 0; i < 150; i++) {
+  stars.push({
+    x: Math.random() * 2000,
+    y: Math.random() * 1200,
+    size: Math.random() * 1.5 + 0.3,
+    alpha: Math.random() * 0.5 + 0.3,
+    twinkle: Math.random() * Math.PI * 2,
+  });
+}
+
+function drawStars() {
+  for (const s of stars) {
+    s.twinkle += 0.02;
+    const a = s.alpha * (0.6 + 0.4 * Math.sin(s.twinkle));
+    ctx.beginPath();
+    ctx.arc(s.x % W, s.y % H, s.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(200,220,255,${a})`;
+    ctx.fill();
+  }
+}
+
+// ---------- 粒子系统 ----------
+let particles = [];
+let phase = 'idle'; // idle → rising → exploding → forming → star
+let targetName = '';
+let frameCount = 0;
+
+// 五颜六色
+const COLORS = [
+  [255, 100, 100],  // 红
+  [255, 200, 50],   // 黄
+  [100, 255, 150],  // 绿
+  [100, 180, 255],  // 蓝
+  [255, 130, 255],  // 粉
+  [255, 160, 60],   // 橙
+  [180, 130, 255],  // 紫
+  [100, 255, 255],  // 青
+];
+
+function randomColor() {
+  const c = COLORS[Math.floor(Math.random() * COLORS.length)];
+  return [c[0] + Math.random()*30-15, c[1] + Math.random()*30-15, c[2] + Math.random()*30-15];
+}
+
+// ---------- 文字→像素点 ----------
+function getTextPixels(text) {
+  const offCanvas = document.createElement('canvas');
+  const offCtx = offCanvas.getContext('2d');
+  offCanvas.width = W;
+  offCanvas.height = H;
+
+  // 根据名字长度调整字号
+  const fontSize = Math.min(120, Math.floor(W / (text.length * 1.2)));
+  offCtx.fillStyle = '#fff';
+  offCtx.font = `bold ${fontSize}px 'Microsoft YaHei', sans-serif`;
+  offCtx.textAlign = 'center';
+  offCtx.textBaseline = 'middle';
+  offCtx.fillText(text, W / 2, H / 2);
+
+  const imgData = offCtx.getImageData(0, 0, W, H);
+  const pixels = [];
+  const gap = 5; // 采样间隔
+  for (let y = 0; y < H; y += gap) {
+    for (let x = 0; x < W; x += gap) {
+      const i = (y * W + x) * 4;
+      if (imgData.data[i + 3] > 128) {
+        pixels.push({ x, y });
+      }
+    }
+  }
+  return pixels;
+}
+
+// ---------- 星星图案像素点 ----------
+function getStarPixels() {
+  const cx = W / 2, cy = H / 2;
+  const outerR = Math.min(W, H) * 0.25;
+  const innerR = outerR * 0.4;
+  const points = 5;
+  const pixels = [];
+
+  for (let angle = 0; angle < Math.PI * 2; angle += 0.03) {
+    // 五角星：交替使用外半径和内半径
+    const starAngle = angle * points / (Math.PI * 2);
+    const sector = Math.floor(starAngle) % 2 === 0;
+    const r = sector ? outerR : innerR;
+    const px = cx + Math.cos(angle) * r;
+    const py = cy + Math.sin(angle) * r;
+    // 在连线上采样
+    const nextAngle = angle + 0.03;
+    const nextStarAngle = nextAngle * points / (Math.PI * 2);
+    const nextSector = Math.floor(nextStarAngle) % 2 === 0;
+    const nextR = nextSector ? outerR : innerR;
+    const nx = cx + Math.cos(nextAngle) * nextR;
+    const ny = cy + Math.sin(nextAngle) * nextR;
+    // 采样中间点
+    for (let t = 0; t < 1; t += 0.15) {
+      pixels.push({ x: px + (nx - px) * t, y: py + (ny - py) * t });
+    }
+  }
+  return pixels;
+}
+
+// ---------- 创建粒子 ----------
+function createParticles(count) {
+  particles = [];
+  for (let i = 0; i < count; i++) {
+    const color = randomColor();
+    particles.push({
+      // 起始位置：屏幕底部随机
+      x: W * 0.2 + Math.random() * W * 0.6,
+      y: H + Math.random() * 50,
+      // 目标位置（拼字）
+      tx: 0, ty: 0,
+      // 速度
+      vx: 0, vy: 0,
+      // 颜色
+      r: color[0], g: color[1], b: color[2],
+      // 大小
+      size: Math.random() * 2.5 + 1.5,
+      // 拖尾
+      trail: [],
+      // 状态
+      alpha: 1,
+      phase: 'rising',
+    });
+  }
+}
+
+// ---------- 阶段控制 ----------
+function startFirework() {
+  const name = document.getElementById('name-input').value.trim();
+  if (!name) return;
+  targetName = name;
+
+  document.getElementById('ui').classList.add('hidden');
+  document.getElementById('restart-btn').classList.remove('show');
+
+  const textPixels = getTextPixels(name);
+  const count = Math.min(textPixels.length, 1500); // 限制粒子数
+
+  createParticles(count);
+
+  // 随机分配文字像素目标
+  for (let i = 0; i < count; i++) {
+    const p = particles[i];
+    const target = textPixels[i % textPixels.length];
+    p.tx = target.x;
+    p.ty = target.y;
+    // 初始向上速度
+    p.vy = -(8 + Math.random() * 6);
+    p.vx = (Math.random() - 0.5) * 4;
+  }
+
+  phase = 'rising';
+  frameCount = 0;
+}
+
+// ---------- 粒子更新 ----------
+function updateParticles() {
+  frameCount++;
+
+  if (phase === 'rising') {
+    // 阶段1：粒子向上飞，到达一定高度后开始散开
+    let allHigh = true;
+    for (const p of particles) {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.08; // 微重力
+      p.vx *= 0.99;
+
+      // 拖尾
+      p.trail.push({ x: p.x, y: p.y });
+      if (p.trail.length > 8) p.trail.shift();
+
+      if (p.y > H * 0.3) allHigh = false;
+    }
+    // 大部分粒子到达上半部分后，进入爆炸阶段
+    if (frameCount > 60 || allHigh) {
+      phase = 'exploding';
+      frameCount = 0;
+      // 爆炸：给每个粒子随机散开速度
+      for (const p of particles) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 2 + Math.random() * 5;
+        p.vx = Math.cos(angle) * speed;
+        p.vy = Math.sin(angle) * speed;
+      }
+    }
+  }
+
+  else if (phase === 'exploding') {
+    // 阶段2：散开
+    for (const p of particles) {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vx *= 0.97;
+      p.vy *= 0.97;
+      p.vy += 0.03;
+
+      p.trail.push({ x: p.x, y: p.y });
+      if (p.trail.length > 6) p.trail.shift();
+    }
+    if (frameCount > 50) {
+      phase = 'forming';
+      frameCount = 0;
+    }
+  }
+
+  else if (phase === 'forming') {
+    // 阶段3：聚拢拼成名字
+    for (const p of particles) {
+      const dx = p.tx - p.x;
+      const dy = p.ty - p.y;
+      p.vx += dx * 0.04;
+      p.vy += dy * 0.04;
+      p.vx *= 0.88;
+      p.vy *= 0.88;
+      p.x += p.vx;
+      p.y += p.vy;
+
+      p.trail.push({ x: p.x, y: p.y });
+      if (p.trail.length > 4) p.trail.shift();
+    }
+    if (frameCount > 120) {
+      phase = 'star';
+      frameCount = 0;
+      // 切换到星星目标
+      const starPixels = getStarPixels();
+      for (let i = 0; i < particles.length; i++) {
+        const target = starPixels[i % starPixels.length];
+        particles[i].tx = target.x;
+        particles[i].ty = target.y;
+      }
+    }
+  }
+
+  else if (phase === 'star') {
+    // 阶段4：变成星星
+    for (const p of particles) {
+      const dx = p.tx - p.x;
+      const dy = p.ty - p.y;
+      p.vx += dx * 0.05;
+      p.vy += dy * 0.05;
+      p.vx *= 0.85;
+      p.vy *= 0.85;
+      p.x += p.vx;
+      p.y += p.vy;
+    }
+    // 星星形成后闪烁
+    if (frameCount > 100) {
+      document.getElementById('restart-btn').classList.add('show');
+    }
+  }
+}
+
+// ---------- 渲染 ----------
+function render() {
+  ctx.fillStyle = 'rgba(10, 10, 46, 0.25)';
+  ctx.fillRect(0, 0, W, H);
+
+  drawStars();
+
+  for (const p of particles) {
+    // 拖尾
+    for (let i = 0; i < p.trail.length; i++) {
+      const t = p.trail[i];
+      const alpha = (i / p.trail.length) * 0.4;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, p.size * 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${p.r},${p.g},${p.b},${alpha})`;
+      ctx.fill();
+    }
+
+    // 主粒子
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${p.r},${p.g},${p.b},${p.alpha})`;
+    ctx.fill();
+
+    // 发光效果
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * 2, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${p.r},${p.g},${p.b},0.15)`;
+    ctx.fill();
+  }
+}
+
+// ---------- 主循环 ----------
+function loop() {
+  if (phase !== 'idle') {
+    updateParticles();
+    render();
+  } else {
+    // 空闲状态：画星空
+    ctx.fillStyle = '#0a0a2e';
+    ctx.fillRect(0, 0, W, H);
+    drawStars();
+  }
+  requestAnimationFrame(loop);
+}
+
+// ---------- 事件 ----------
+document.getElementById('fire-btn').addEventListener('click', startFirework);
+document.getElementById('name-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') startFirework();
+});
+document.getElementById('restart-btn').addEventListener('click', () => {
+  phase = 'idle';
+  particles = [];
+  document.getElementById('ui').classList.remove('hidden');
+  document.getElementById('restart-btn').classList.remove('show');
+  document.getElementById('name-input').value = targetName;
+});
+
+loop();
+</script>
+</body>
+</html>

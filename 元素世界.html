@@ -167,7 +167,7 @@
 <div id="canvas-wrap">
   <canvas id="stars"></canvas>
   <canvas id="c"></canvas>
-  <div id="hint">👆 按住鼠标画元素 | ⬅️➡️ 方向键控制火柴人 | ⬆️ 跳跃</div>
+  <div id="hint">🖱️ 按住鼠标画元素 | ⬅️➡️ 走 | ⬆️ 跳 | 🔥 碰火掉血 | R 复活</div>
 </div>
 
 <script>
@@ -612,11 +612,17 @@ function updateStick() {
   else if (keys['ArrowRight']) { stick.vx = SPEED; stick.facing = 1; }
   else { stick.vx *= 0.7; }
 
-  // 跳跃：只要脚下有东西就能跳，或者在下落时也能跳一次
-  const canJump = stick.onGround || (stick.vy >= 0 && stick.vy < 3);
-  if (keys['ArrowUp'] && canJump) {
+  // 跳跃：只有踩在地上才能跳
+  if (keys['ArrowUp'] && stick.onGround) {
     stick.vy = JUMP;
     stick.onGround = false;
+  }
+
+  // 复活：按R键
+  if (keys['r'] || keys['R']) {
+    stick.alive = true;
+    stick.health = 100;
+    stick.vy = 0;
   }
 
   // 重力
